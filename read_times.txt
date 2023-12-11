@@ -1,0 +1,3 @@
+Read from clean file: 2m24.272409746s
+Read from dirty file: 4m31.401873181s
+Cleaning file separately: 5m30.304352108s

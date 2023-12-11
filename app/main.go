@@ -8,53 +8,50 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 )
 
 type NumberIntCleaner struct {
-	//r io.Reader
 	r      *bufio.Reader
 	buffer string
 }
 
 func (nic *NumberIntCleaner) Read(p []byte) (n int, err error) {
-	/*for {
-		line, err := nic.r.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return 0, err
+	re := regexp.MustCompile(`NumberInt\(([^)]+)\)`)
+	for {
+		for i := 0; i < 42; i++ {
+			var line string
+			line, err = nic.r.ReadString('\n')
+			if err != nil && err != io.EOF {
+				return 0, err
+			}
+
+			nic.buffer += line
+
+			if err == io.EOF {
+				break
+			}
 		}
 
-		nic.buffer += line
-
 		// Search for a complete NumberInt()
-		re := regexp.MustCompile(`NumberInt\(([^)]+)\)`)
 		cleaned := re.ReplaceAllString(nic.buffer, "$1")
 
-		if len(cleaned) > len(p) {
-			n = copy(p, cleaned)
+		n = copy(p, cleaned)
+
+		if err == io.EOF {
+			return n, err
+		}
+
+		if n < len(cleaned) {
 			nic.buffer = cleaned[n:]
 			return n, nil
 		}
 
-		nic.buffer = cleaned
-
-		if err == io.EOF {
-			return copy(p, cleaned), err
+		if n == len(cleaned) {
+			nic.buffer = ""
+			return n, nil
 		}
-	}*/
-
-	buf := make([]byte, len(p))
-	n, err = nic.r.Read(buf)
-	if err != nil && err != io.EOF {
-		return 0, err
 	}
-
-	// Search for a complete NumberInt()
-	re := regexp.MustCompile(`NumberInt\(([^)]+)\)`)
-	cleaned := re.ReplaceAllString(string(buf[:n]), "$1")
-
-	return copy(p, cleaned), err
 }
 
 type Author struct {
@@ -73,8 +70,9 @@ type Article struct {
 	Id         string   `json:"_id"`
 	Title      string   `json:"title"`
 	Authors    []Author `json:"authors"`
-	NCitations int      `json:"n_citation"`
 	References []string `json:"references"`
+
+	//NCitations int `json:"n_citation"`
 
 	/*Venue     Venue    `json:"venue"`
 	Year      int      `json:"year"`
@@ -93,7 +91,7 @@ type Article struct {
 	Abstract  string   `json:"abstract"`*/
 }
 
-func downloadJson(url string) error {
+func downloadAndParseJson(url string, nArticles int) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -103,55 +101,24 @@ func downloadJson(url string) error {
 	reader := bufio.NewReader(resp.Body)
 	cleaner := &NumberIntCleaner{r: reader}
 
-	decoder := json.NewDecoder(cleaner)
-
-	// First [
-	if _, err := decoder.Token(); err != nil {
-		return err
-	}
-
-	i := 0
-
-	for decoder.More() {
-		var art Article
-
-		// Start timing
-		//start := time.Now()
-		if err := decoder.Decode(&art); err != nil {
-			return err
-		}
-		/*fmt.Printf("Title: %s\nAuthors: \n", art.Title)
-		for _, author := range art.Authors {
-			fmt.Printf("\t- %s\n", author.Name)
-		}*/
-
-		// End timing
-		//elapsed := time.Since(start)
-		//fmt.Printf("%d: %s\n", i, elapsed)
-		if i%100 == 0 {
-			fmt.Println(i)
-		}
-		i++
-	}
-
-	// Last ]
-	if _, err := decoder.Token(); err != nil {
-		return err
-	}
-
-	return nil
+	return parseJson(cleaner, nArticles)
 }
 
-func parseJson(filepath string) error {
+func readAndParseJson(filepath string, nArticles int) error {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
 	reader := bufio.NewReader(file)
 	cleaner := &NumberIntCleaner{r: reader}
 
-	decoder := json.NewDecoder(cleaner)
+	return parseJson(cleaner, nArticles)
+}
+
+func parseJson(r io.Reader, nArticles int) error {
+	decoder := json.NewDecoder(r)
 
 	// First [
 	if _, err := decoder.Token(); err != nil {
@@ -160,51 +127,18 @@ func parseJson(filepath string) error {
 
 	i := 0
 
-	for decoder.More() {
+	for decoder.More() && i < nArticles {
 		var art Article
 
-		// Start timing
-		start := time.Now()
 		if err := decoder.Decode(&art); err != nil {
 			return err
 		}
-		fmt.Printf("Title: %s\nAuthors: \n", art.Title)
-		for _, author := range art.Authors {
-			fmt.Printf("\t- %s\n", author.Name)
-		}
 
-		// End timing
-		elapsed := time.Since(start)
-		fmt.Printf("%d: %s\n", i, elapsed)
 		i++
 	}
 
 	// Last ]
 	if _, err := decoder.Token(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func downloadFile(url string) error {
-	out, err := os.Create(strings.Split(url, "/")[len(strings.Split(url, "/"))-1])
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	reader := bufio.NewReader(resp.Body)
-	cleaner := &NumberIntCleaner{r: reader}
-
-	_, err = io.Copy(out, cleaner)
-	if err != nil {
 		return err
 	}
 
@@ -214,13 +148,13 @@ func downloadFile(url string) error {
 func main() {
 	//url := "http://vmrum.isc.heia-fr.ch/biggertest.json"
 	//url := "http://vmrum.isc.heia-fr.ch/dblpv13.json"
-	//filepath := "data/dblpv13.json"
-	filepath := "data/dblpv13_corr.json"
+	filepath := "data/dblpv13.json"
+	//filepath := "data/dblpv13_corr.json"
+	//filepath := "data/dblpv13_cleaned.json"
 
 	start := time.Now()
-	//err := downloadJson(url)
-	//err := downloadFile(url)
-	err := parseJson(filepath)
+	//err := downloadAndParseJson(url)
+	err := readAndParseJson(filepath, 1000000)
 	if err != nil {
 		fmt.Println("Error:", err)
 	}
