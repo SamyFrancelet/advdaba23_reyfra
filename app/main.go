@@ -2,13 +2,16 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"regexp"
+	"sync"
 	"time"
+
+	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
 type NumberIntCleaner struct {
@@ -91,33 +94,85 @@ type Article struct {
 	Abstract  string   `json:"abstract"`*/
 }
 
-func downloadAndParseJson(url string, nArticles int) error {
+func (a *Article) ToParams() map[string]interface{} {
+	authors := make([]map[string]interface{}, len(a.Authors))
+	for i, author := range a.Authors {
+		authors[i] = map[string]interface{}{
+			"_id":  author.Id,
+			"name": author.Name,
+		}
+	}
+
+	params := map[string]interface{}{
+		"_id":        a.Id,
+		"title":      a.Title,
+		"authors":    authors,
+		"references": a.References,
+	}
+
+	return params
+}
+
+func articlesToParams(articles []Article) map[string]interface{} {
+	articlesMap := make([]map[string]interface{}, len(articles))
+	for i, article := range articles {
+		articlesMap[i] = article.ToParams()
+	}
+
+	params := map[string]interface{}{
+		"articles": articlesMap,
+	}
+
+	return params
+}
+
+type DbConfig struct {
+	URI      string
+	Username string
+	Password string
+	Query    string
+}
+
+var wg sync.WaitGroup
+
+/*func downloadAndParseJson(url string, articles chan Article, max int) {
 	resp, err := http.Get(url)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	defer resp.Body.Close()
 
 	reader := bufio.NewReader(resp.Body)
 	cleaner := &NumberIntCleaner{r: reader}
 
-	return parseJson(cleaner, nArticles)
-}
+	err = parseJson(cleaner, dbConf, articles, max)
+	if err != nil {
+		panic(err)
+	}
 
-func readAndParseJson(filepath string, nArticles int) error {
+	wg.Done()
+}*/
+
+func readAndParseJson(filepath string, articles chan Article, max int) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	defer file.Close()
 
 	reader := bufio.NewReader(file)
 	cleaner := &NumberIntCleaner{r: reader}
 
-	return parseJson(cleaner, nArticles)
+	err = parseJson(cleaner, articles, max)
+	if err != nil {
+		panic(err)
+	}
+
+	close(articles)
+	//wg.Done()
 }
 
-func parseJson(r io.Reader, nArticles int) error {
+func parseJson(r io.Reader, articles chan Article, max int) error {
 	decoder := json.NewDecoder(r)
 
 	// First [
@@ -125,16 +180,14 @@ func parseJson(r io.Reader, nArticles int) error {
 		return err
 	}
 
-	i := 0
+	for i := 0; decoder.More() && i < max; i++ {
+		var article Article
 
-	for decoder.More() && i < nArticles {
-		var art Article
-
-		if err := decoder.Decode(&art); err != nil {
+		if err := decoder.Decode(&article); err != nil {
 			return err
 		}
 
-		i++
+		articles <- article
 	}
 
 	// Last ]
@@ -145,20 +198,107 @@ func parseJson(r io.Reader, nArticles int) error {
 	return nil
 }
 
+func pushArticlesToDB(dbConf DbConfig, articles chan Article) {
+	ctx := context.Background()
+
+	driver, err := neo4j.NewDriverWithContext(
+		dbConf.URI,
+		neo4j.BasicAuth(dbConf.Username, dbConf.Password, ""),
+	)
+
+	if err != nil {
+		panic(err)
+	}
+	defer driver.Close(ctx)
+
+	err = driver.VerifyConnectivity(ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	session := driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+
+	articlesBuf := make([]Article, 0, 10)
+
+	for article := range articles {
+		articlesBuf = append(articlesBuf, article)
+
+		if len(articlesBuf) == 10 {
+			params := articlesToParams(articlesBuf)
+			_, err := session.Run(ctx, dbConf.Query, params)
+			if err != nil {
+				panic(err)
+			}
+
+			articlesBuf = articlesBuf[:0]
+		}
+	}
+
+	if len(articlesBuf) > 0 {
+		params := articlesToParams(articlesBuf)
+		_, err := session.Run(ctx, dbConf.Query, params)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	wg.Done()
+}
+
 func main() {
+	query := `
+	UNWIND $articles AS article
+	MERGE (a:Article {_id: article._id, title: article.title})
+
+	WITH a, article
+	UNWIND article.authors AS author
+	MERGE (b:Author {_id: author._id, name: author.name})
+	MERGE (b)-[:AUTHORED]->(a)
+
+	WITH a, article
+	UNWIND article.references AS ref
+	MERGE (c:Article {_id: ref})
+	MERGE (a)-[:CITES]->(c)
+	`
+
+	/*query := `
+	MERGE (a:Article {_id: $article._id, title: $article.title})
+
+	WITH a
+	UNWIND $article.authors AS author
+	MERGE (b:Author {_id: author._id, name: author.name})
+	MERGE (b)-[:AUTHORED]->(a)
+
+	WITH a
+	UNWIND $article.references AS ref
+	MERGE (c:Article {_id: ref})
+	MERGE (a)-[:CITES]->(c)
+	`*/
+
+	dbConf := DbConfig{
+		URI:      "bolt://3.239.216.81:7687",
+		Username: "neo4j",
+		Password: "horns-mattresses-cashiers",
+		Query:    query,
+	}
+
+	articles := make(chan Article, 1000)
+
 	//url := "http://vmrum.isc.heia-fr.ch/biggertest.json"
 	//url := "http://vmrum.isc.heia-fr.ch/dblpv13.json"
 	filepath := "data/dblpv13.json"
-	//filepath := "data/dblpv13_corr.json"
-	//filepath := "data/dblpv13_cleaned.json"
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go pushArticlesToDB(dbConf, articles)
+	}
 
 	start := time.Now()
-	//err := downloadAndParseJson(url)
-	err := readAndParseJson(filepath, 1000000)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-	elapsed := time.Since(start)
 
-	fmt.Printf("Total time: %s\n", elapsed)
+	go readAndParseJson(filepath, articles, 500)
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	fmt.Printf("Clean + Parse + Add to DB time: %s\n", elapsed)
 }
