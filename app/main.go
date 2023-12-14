@@ -25,7 +25,7 @@ func main() {
 	}
 
 	dbConf := DbConfig{
-		URI:      "bolt://localhost:7687",
+		URI:      "bolt://db:7687",
 		Username: "neo4j",
 		Password: "pizzapizza",
 	}
@@ -37,6 +37,9 @@ func main() {
 	//url := "http://vmrum.isc.heia-fr.ch/biggertest.json"
 	url := "http://vmrum.isc.heia-fr.ch/dblpv13.json"
 	//filepath := "data/dblpv13.json"
+
+	// Wait for the DB to be ready
+	time.Sleep(15 * time.Second)
 
 	start := time.Now()
 

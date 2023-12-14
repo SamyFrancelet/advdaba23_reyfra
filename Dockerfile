@@ -4,14 +4,14 @@ FROM golang:1.21.5
 WORKDIR /app
 
 # Install dependencies
-COPY app/go.mod ./
+COPY app/go.mod app/go.sum ./
 RUN go mod download
 
 # Copy sources
 COPY app/*.go ./
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o /advdaba_reyfra .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /advdaba_reyfra
 
 # Run
 CMD ["/advdaba_reyfra", "1000000"]

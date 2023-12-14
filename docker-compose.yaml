@@ -1,0 +1,25 @@
+services:
+  db:
+    image: neo4j:latest
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - $PWD/db_data:/data
+      - $PWD/db_logs:/logs
+      - $PWD/db_import:/var/lib/neo4j/import
+    environment:
+      - NEO4J_AUTH=neo4j/pizzapizza
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  app:
+    image: go_app:latest
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          memory: 2g
