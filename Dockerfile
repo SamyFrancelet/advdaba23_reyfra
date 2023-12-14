@@ -14,4 +14,4 @@ COPY app/*.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /advdaba_reyfra .
 
 # Run
-CMD ["/advdaba_reyfra"]
+CMD ["/advdaba_reyfra", "1000000"]
