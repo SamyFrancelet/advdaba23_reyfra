@@ -13,13 +13,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: 2.5g
 
   app:
-    image: go_app:latest
+    image: advdaba23:latest
     depends_on:
       - db
+    volumes:
+      - $PWD/app_logs:/logs
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: 2.5g

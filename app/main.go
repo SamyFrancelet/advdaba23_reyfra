@@ -39,7 +39,7 @@ func main() {
 	//filepath := "data/dblpv13.json"
 
 	// Wait for the DB to be ready
-	time.Sleep(15 * time.Second)
+	time.Sleep(200 * time.Second)
 
 	start := time.Now()
 
@@ -66,4 +66,22 @@ func main() {
 
 	elapsed := time.Since(start)
 	fmt.Printf("Clean + Parse + Add to DB time: %s\n", elapsed)
+
+	// Open log file with current date as name
+	logFile, err := os.OpenFile("/logs/"+time.Now().Format("2006-01-02_15:04:05")+".json", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		panic(err)
+	}
+
+	// Write elapsed time to log file
+	_, err = logFile.WriteString(fmt.Sprintf(`{"team":"ReyFra","N:%d,"RAM_GB":2.5,"time":"%s"}`, nArticles, elapsed))
+	if err != nil {
+		panic(err)
+	}
+
+	// Close log file
+	err = logFile.Close()
+	if err != nil {
+		panic(err)
+	}
 }

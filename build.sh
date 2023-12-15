@@ -1,3 +1,3 @@
 #! /usr/bin/sh
 
-docker build . -t go_app
+docker build . -t advdaba23
