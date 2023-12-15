@@ -74,7 +74,7 @@ same pod as the application, and the application couldn't resolve the
 database hostname.
 
 However, running the experiment locally gave the following results:
-
+{"team":"ReyFra","N:1000000,"RAM_GB":2.5,"time":"8m44.109794088s"}
 
 ## Improvements
 - Instead of waiting 200s for the database to be ready, we could use a retry mechanism
